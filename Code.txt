@@ -1,0 +1,262 @@
+# نصب بسته‌های مورد نیاز
+install.packages(c("plm", "dplyr", "ggplot2", "stargazer"))
+library(plm)
+# بارگذاری بسته lmtest
+library(lmtest)
+install.packages("lmtest")
+
+library(dplyr)
+library(ggplot2)
+library(stargazer)
+install.packages("readxl")
+install.packages("tseries")
+install.packages("tidyverse")
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(plm)
+library(tseries)
+library(readr)
+library(tidyverse)
+# 1. بارگذاری داده‌ها
+data <- read_excel("combined_data.xlsx")
+
+# 2. تحلیل اولیه داده‌ها
+summary(data)
+head(data)
+data <- data %>%
+  mutate(SHOCK = rnorm(nrow(data), mean = 0, sd = 1)) # شوک تصادفی
+
+# 3. تعریف متغیرهای کلیدی
+data <- data %>%
+  mutate(
+    expense_income_ratio = `R-TEXP` / `R-TINC`, # نسبت مخارج کل به درآمد کل
+    positive_shock = ifelse(SHOCK > 0, 1, 0),   # شوک مثبت
+    negative_shock = ifelse(SHOCK < 0, 1, 0)    # شوک منفی
+  )
+
+# ایجاد نسخه جایگزین برای متغیرها
+data <- data %>%
+  mutate(RTEXP = `R-TEXP`, RTINC = `R-TINC`)
+
+# مدیریت مقادیر صفر و منفی
+data <- data %>%
+  filter(RTEXP > 0, RTINC > 0) # حذف ردیف‌های مشکل‌دار
+
+# تبدیل به فرمت پانل
+pdata <- pdata.frame(data, index = c("HHID", "Year"))
+
+
+# اثرات ثابت  اجرای مدل
+fixed_model <- plm(log(RTEXP) ~ log(RTINC) + positive_shock + negative_shock + Size + Region,
+                   data = pdata, model = "within")
+summary(fixed_model)
+
+# مدل اثرات تصادفی
+random_model <- plm(log(RTEXP) ~ log(RTINC) + positive_shock + Size, data = pdata, model = "random")
+summary(random_model)
+
+# آزمون Breusch-Godfrey برای خودهمبستگی
+bg_test <- bgtest(fixed_model)
+summary(bg_test)
+
+# اجرای آزمون Breusch-Pagan روی مدل اثرات تصادفی
+bp_test_random <- bptest(random_model)
+summary(bp_test_random)
+
+
+# آزمون هاسمن
+hausman_test <- phtest(fixed_model, random_model)
+summary(hausman_test)
+
+# 5. نمایش نتایج
+summary(fixed_model)
+summary(random_model)
+print(hausman_test)
+
+# 6. تحلیل گرافیکی
+ggplot(data, aes(x = Year, y = RTEXP, color = Region)) +
+  geom_line() +
+  labs(title = "تغییرات مخارج کل خانوارها", x = "سال", y = "مخارج کل")
+
+# 6. تحلیل گرافیکی
+ggplot(data, aes(x = Year, y = RTINC, color = Region)) +
+  geom_line() +
+  labs(title = "تغییرات مخارج کل خانوارها", x = "سال", y = "مخارج کل")
+
+
+# 7. گزارش‌دهی
+stargazer(fixed_model, random_model, type = "text", title = "نتایج مدل‌ها")
+
+# تبدیل pdata به یک data.frame ساده و حذف ساختار pseries
+pdata_df <- as.data.frame(pdata)
+
+# حالا داده‌ها به صورت معمولی در pdata_df هستند.
+# حالا می‌توانید هیستوگرام را رسم کنید
+ggplot(pdata_df, aes(x = log(RTEXP + 1))) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black", alpha = 0.7, boundary = 0) +
+  ggtitle("Histogram of log(RTEXP + 1)") +
+  xlab("log(RTEXP + 1)") +
+  ylab("Frequency") +
+  theme_minimal()
+
+
+# همچنین می‌توانید هیستوگرام برای RTINC را رسم کنید
+ggplot(pdata_df, aes(x = log(RTINC + 1))) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black", alpha = 0.7, boundary = 0) +
+  ggtitle("Histogram of log(RTINC + 1)") +
+  xlab("log(RTINC + 1)") +
+  ylab("Frequency") +
+  theme_minimal()
+
+
+
+
+
+ 3. اسکتر پلات (رابطه بین RTEXP و RTINC)
+
+ggplot(pdata, aes(x = RTINC, y = RTEXP)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  ggtitle("Scatter Plot of RTEXP vs RTINC") +
+  xlab("RTINC (log scale)") +
+  ylab("RTEXP (log scale)") +
+  scale_x_log10() +  # استفاده از مقیاس لگاریتمی برای محور x
+  scale_y_log10() +  # استفاده از مقیاس لگاریتمی برای محور y
+  theme_minimal()
+
+
+# تقسیم داده‌ها بر اساس متغیر Region
+urban_data <- pdata %>% filter(Region == "Urban")  # داده‌های مناطق شهری
+rural_data <- pdata %>% filter(Region == "Rural")  # داده‌های مناطق روستایی
+
+# مدل رگرسیونی برای منطقه شهری
+urban_model <- plm(log(RTEXP) ~ log(RTINC) + positive_shock + negative_shock + Size,
+                   data = urban_data, model = "random")  # مدل اثرات تصادفی یا اثرات ثابت
+summary(urban_model)
+
+# مدل رگرسیونی برای منطقه روستایی
+rural_model <- plm(log(RTEXP) ~ log(RTINC) + positive_shock + negative_shock + Size,
+                   data = rural_data, model = "random")  # مدل اثرات تصادفی یا اثرات ثابت
+summary(rural_model)
+
+
+# تبدیل pdata به data.frame ساده
+pdata_df <- as.data.frame(pdata)
+
+# بررسی و تبدیل مجدد متغیرهای RTEXP و RTINC به عددی
+pdata_df$RTEXP <- as.numeric(as.character(pdata_df$RTEXP))
+pdata_df$RTINC <- as.numeric(as.character(pdata_df$RTINC))
+
+# بررسی نوع داده‌ها
+str(pdata_df$RTEXP)
+str(pdata_df$RTINC)
+
+# فیلتر داده‌ها برای مناطق شهری و روستایی
+urban_data <- pdata_df %>% filter(Region == "Urban")  # داده‌های مناطق شهری
+rural_data <- pdata_df %>% filter(Region == "Rural")  # داده‌های مناطق روستایی
+
+# هیستوگرام برای log(RTEXP + 1) در مناطق شهری
+ggplot(urban_data, aes(x = log(RTEXP + 1))) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black", alpha = 0.7, boundary = 0) +
+  ggtitle("Histogram of log(RTEXP + 1) in Urban Areas") +
+  xlab("log(RTEXP + 1)") +
+  ylab("Frequency") +
+  theme_minimal()
+
+# هیستوگرام برای log(RTINC + 1) در مناطق شهری
+ggplot(urban_data, aes(x = log(RTINC + 1))) +
+  geom_histogram(bins = 30, fill = "lightgreen", color = "black", alpha = 0.7, boundary = 0) +
+  ggtitle("Histogram of log(RTINC + 1) in Urban Areas") +
+  xlab("log(RTINC + 1)") +
+  ylab("Frequency") +
+  theme_minimal()
+
+# هیستوگرام برای log(RTEXP + 1) در مناطق روستایی
+ggplot(rural_data, aes(x = log(RTEXP + 1))) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black", alpha = 0.7, boundary = 0) +
+  ggtitle("Histogram of log(RTEXP + 1) in Rural Areas") +
+  xlab("log(RTEXP + 1)") +
+  ylab("Frequency") +
+  theme_minimal()
+
+# هیستوگرام برای log(RTINC + 1) در مناطق روستایی
+ggplot(rural_data, aes(x = log(RTINC + 1))) +
+  geom_histogram(bins = 30, fill = "lightgreen", color = "black", alpha = 0.7, boundary = 0) +
+  ggtitle("Histogram of log(RTINC + 1) in Rural Areas") +
+  xlab("log(RTINC + 1)") +
+  ylab("Frequency") +
+  theme_minimal()
+
+
+# اضافه کردن ستون‌های log برای RTEXP و RTINC
+pdata_df <- pdata_df %>%
+  mutate(
+    log_RTEXP = log(RTEXP + 1),  # محاسبه لگاریتم RTEXP
+    log_RTINC = log(RTINC + 1)   # محاسبه لگاریتم RTINC
+  )
+
+# داده‌های منطقه شهری
+urban_data <- pdata_df %>% filter(Region == "Urban")
+
+# اسکاتر پلات برای مناطق شهری
+ggplot(urban_data, aes(x = log_RTEXP, y = log_RTINC)) +
+  geom_point(alpha = 0.5, size = 0.5, color = "blue") +  # تنظیم رنگ و اندازه نقاط
+  ggtitle("Scatter plot of log(RTEXP + 1) vs log(RTINC + 1) for Urban Areas") +
+  xlab("log(RTEXP + 1)") +
+  ylab("log(RTINC + 1)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),  # عنوان در مرکز
+    axis.text = element_text(size = 12),  # تنظیم اندازه متن محورها
+    axis.title = element_text(size = 14)  # تنظیم اندازه عنوان محورها
+  )
+
+# داده‌های منطقه روستایی
+rural_data <- pdata_df %>% filter(Region == "Rural")
+
+# اسکاتر پلات برای مناطق روستایی
+ggplot(rural_data, aes(x = log_RTEXP, y = log_RTINC)) +
+  geom_point(alpha = 0.5, size = 0.5, color = "green") +  # تنظیم رنگ و اندازه نقاط
+  ggtitle("Scatter plot of log(RTEXP + 1) vs log(RTINC + 1) for Rural Areas") +
+  xlab("log(RTEXP + 1)") +
+  ylab("log(RTINC + 1)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),  # عنوان در مرکز
+    axis.text = element_text(size = 12),  # تنظیم اندازه متن محورها
+    axis.title = element_text(size = 14)  # تنظیم اندازه عنوان محورها
+  )
+
+
+
+# بررسی و حذف ستون‌های تکراری
+pdata_df <- rbind(
+  cbind(urban_data, Region = "Urban"),
+  cbind(rural_data, Region = "Rural")
+)
+
+# بررسی نام ستون‌ها و حذف ستون‌های تکراری در صورت وجود
+colnames(pdata_df)  # نمایش نام ستون‌ها
+pdata_df <- pdata_df[, !duplicated(colnames(pdata_df))]  # حذف ستون‌های تکراری
+
+# اعمال لگاریتم بر روی RTEXP و RTINC برای تنظیم توزیع بهتر
+pdata_df$log_RTEXP <- log(pdata_df$RTEXP + 1)  # لگاریتم RTEXP
+pdata_df$log_RTINC <- log(pdata_df$RTINC + 1)  # لگاریتم RTINC
+
+# اسکاتر پلات با لگاریتم بر روی داده‌ها
+# اسکاتر پلات با لگاریتم بر روی داده‌ها و نقاط ریزتر
+ggplot(pdata_df, aes(x = log_RTEXP, y = log_RTINC, color = Region)) +
+  geom_point(alpha = 0.5) +  # نمایش نقاط با شفافیت
+  ggtitle("Scatter plot of log(RTEXP + 1) vs log(RTINC + 1) by Region") +
+  xlab("log(RTEXP + 1)") +
+  ylab("log(RTINC + 1)") +
+  scale_color_manual(values = c("Urban" = "blue", "Rural" = "green")) +  # رنگ مناطق
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),  # عنوان در مرکز
+    axis.text = element_text(size = 12),  # تنظیم اندازه متن محورها
+    axis.title = element_text(size = 14)  # تنظیم اندازه عنوان محورها
+  )
+
+
+
